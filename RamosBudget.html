@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Finance Dashboard</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <!-- PWA & MOBILE APP METADATA -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="theme-color" content="#4f46e5">
+    <!-- Note: A true PWA uses a separate manifest.json, but these meta tags help force the full-screen app experience. -->
+
+    <style>
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: #9ca3af; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background-color: #f3f4f6; }
+        #transactionsTable th, #transactionsTable td { padding: 0.75rem 1rem; text-align: left; }
+        
+        /* Login Screen Animation */
+        .fade-out { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+        .fade-in { opacity: 1; transition: opacity 0.5s ease; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans antialiased relative">
+
+    <!-- LOGIN OVERLAY -->
+    <div id="loginOverlay" class="fixed inset-0 bg-indigo-900 z-[100] flex flex-col items-center justify-center p-4 transition-opacity duration-500">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-md w-full text-center">
+            <div class="mb-6">
+                <span class="text-6xl">🏠</span>
+            </div>
+            <h1 class="text-3xl font-extrabold text-gray-900 mb-2">Family Finance</h1>
+            <p class="text-gray-500 mb-8">Enter a unique Family ID to share your budget.</p>
+            
+            <form id="loginForm" class="space-y-4 text-left">
+                <div>
+                    <label for="familyIdInput" class="block text-sm font-medium text-gray-700">Family ID / Code</label>
+                    <input type="text" id="familyIdInput" required placeholder="e.g. SmithFamily2024" 
+                        class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                        autocomplete="off">
+                    <p class="text-xs text-gray-400 mt-1">Share this code with your wife to access the same data.</p>
+                </div>
+                <button type="submit" class="w-full py-3 px-4 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
+                    Access Dashboard
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div id="loadingIndicator" class="fixed inset-0 bg-white/70 flex items-center justify-center z-50 hidden">
+        <div class="text-xl font-semibold text-indigo-600">Syncing Data...</div>
+    </div>
+    
+    <!-- Custom Modal for Messages -->
+    <div id="messageModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 hidden items-center justify-center z-[60]">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full">
+            <h3 id="modalTitle" class="text-xl font-bold mb-3 text-indigo-700"></h3>
+            <p id="modalMessage" class="text-gray-700 mb-6"></p>
+            <button onclick="closeModal()" class="w-full py-2 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition">Close</button>
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD CONTENT -->
+    <div id="dashboardContent" class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 opacity-0 transition-opacity duration-700">
+        <header class="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center">
+            <div>
+                <h1 class="text-4xl font-extrabold text-gray-900 mb-1">Family Finance Tracker</h1>
+                <p class="text-indigo-600 font-medium bg-indigo-50 inline-block px-3 py-1 rounded-full text-sm">
+                    Family: <span id="currentFamilyId">...</span>
+                </p>
+            </div>
+            <button onclick="logout()" class="mt-4 sm:mt-0 px-4 py-2 bg-white text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium transition shadow-sm">
+                Log Out / Switch Family
+            </button>
+        </header>
+
+        <!-- Main Dashboard Grid -->
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Column 1: Transaction Form and Balances -->
+            <div class="lg:col-span-1 space-y-6">
+
+                <!-- Current Balance Card -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">Overview</h2>
+                    <div class="flex flex-col space-y-3">
+                        <div class="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                            <span class="text-lg font-medium text-green-700">Income:</span>
+                            <span id="totalIncome" class="text-xl font-extrabold text-green-600">$0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                            <span class="text-lg font-medium text-red-700">Expenses:</span>
+                            <span id="totalExpense" class="text-xl font-extrabold text-red-600">$0.00</span>
+                        </div>
+                        <div class="flex justify-between items-center p-3 rounded-lg shadow-inner bg-gray-50" id="netBalanceContainer">
+                            <span class="text-xl font-semibold text-gray-800">Net Balance:</span>
+                            <span id="netBalance" class="text-2xl font-extrabold text-gray-800">$0.00</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Add New Transaction Form (Manual) -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-indigo-700 mb-4">Add Transaction</h2>
+                    <form id="transactionForm" class="space-y-4">
+                        <div>
+                            <label for="type" class="block text-sm font-medium text-gray-700">Type</label>
+                            <select id="type" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md">
+                                <option value="Income">Income</option>
+                                <option value="Expense">Expense</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="amount" class="block text-sm font-medium text-gray-700">Amount ($)</label>
+                            <input type="number" id="amount" required min="0.01" step="0.01" placeholder="0.00" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="category" class="block text-sm font-medium text-gray-700">Category</label>
+                            <input type="text" id="category" required placeholder="Salary, Rent, Groceries" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="date" class="block text-sm font-medium text-gray-700">Date</label>
+                            <input type="date" id="date" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition">
+                            Add Entry
+                        </button>
+                    </form>
+                </div>
+
+                <!-- New LLM Analysis Section -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-purple-200">
+                    <h2 class="text-2xl font-bold text-purple-700 mb-4">Financial Coach ✨</h2>
+                    <p class="text-sm text-gray-600 mb-4">Get personalized insights, budget recommendations, and saving strategies based on your family's recent activity.</p>
+                    <button id="analyzeButton" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition disabled:opacity-50">
+                        Analyze Finances & Get Budget Tips
+                    </button>
+                    
+                    <!-- Results Display -->
+                    <div id="analysisResult" class="mt-4 p-4 bg-purple-50 rounded-lg hidden">
+                        <h3 class="font-bold text-lg text-purple-800 mb-2">Insight Summary:</h3>
+                        <div id="analysisText" class="text-gray-700 prose max-w-none text-sm leading-relaxed"></div>
+                        <div id="citationSources" class="mt-3 text-xs text-gray-500 border-t pt-2"></div>
+                    </div>
+                </div>
+
+                <!-- CSV Import Section -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-teal-700 mb-4">Import Bank CSV</h2>
+                    <form id="csvForm" class="space-y-4">
+                        <div>
+                            <input type="file" id="csvFile" accept=".csv" required class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-teal-50 file:text-teal-700 hover:file:bg-teal-100">
+                        </div>
+                        <button type="submit" id="csvSubmitButton" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 transition">
+                            Import CSV
+                        </button>
+                    </form>
+                    <p id="csvStatusMsg" class="text-sm mt-3 hidden"></p>
+                </div>
+            </div>
+
+            <!-- Column 2 & 3: Charts and Transactions -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Charts Section -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">Monthly Trend</h2>
+                        <div class="h-64"><canvas id="monthlyTrendChart"></canvas></div>
+                    </div>
+                    <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                        <h2 class="text-xl font-bold text-gray-800 mb-4">Expenses by Category</h2>
+                        <div class="h-64 flex items-center justify-center"><canvas id="categoryChart"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- Transactions List -->
+                <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4">Recent Activity</h2>
+                    <div class="max-h-96 overflow-y-auto custom-scroll">
+                        <table class="min-w-full divide-y divide-gray-200" id="transactionsTable">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="text-xs font-medium text-gray-500 uppercase">Date</th>
+                                    <th class="text-xs font-medium text-gray-500 uppercase">Category</th>
+                                    <th class="text-xs font-medium text-gray-500 uppercase">Type</th>
+                                    <th class="text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactionList" class="bg-white divide-y divide-gray-200"></tbody>
+                        </table>
+                        <p id="noTransactions" class="text-center py-4 text-gray-500 hidden">No transactions recorded yet.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, onSnapshot, serverTimestamp, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Configuration
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const API_URL_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+        const API_KEY = ""; // Kept empty as per instructions
+
+        // State
+        let db, auth;
+        let currentFamilyId = null; 
+        let unsubscribeFirestore = null;
+        let monthlyChartInstance, categoryChartInstance;
+        let allTransactions = []; // Holds transaction data for LLM analysis
+
+        // --- AUTH & LOGIN LOGIC ---
+
+        function checkLoginState() {
+            // Check if user has previously "logged in" with a family ID
+            const storedFamilyId = localStorage.getItem('finance_family_id');
+            if (storedFamilyId) {
+                loginFamily(storedFamilyId);
+            } else {
+                // Show Login Screen
+                document.getElementById('loginOverlay').classList.remove('fade-out');
+                document.getElementById('dashboardContent').classList.remove('fade-in');
+            }
+        }
+
+        async function loginFamily(familyId) {
+            currentFamilyId = familyId;
+            localStorage.setItem('finance_family_id', familyId);
+            
+            // Update UI
+            document.getElementById('currentFamilyId').textContent = familyId;
+            document.getElementById('loginOverlay').classList.add('fade-out');
+            setTimeout(() => {
+                document.getElementById('loginOverlay').style.display = 'none';
+                document.getElementById('dashboardContent').classList.add('fade-in');
+                document.getElementById('dashboardContent').style.opacity = '1';
+            }, 500);
+
+            // Initialize Firebase if not already done
+            if (!db) {
+                await initFirebase();
+            } else {
+                startFirestoreListener();
+            }
+        }
+
+        window.logout = function() {
+            localStorage.removeItem('finance_family_id');
+            currentFamilyId = null;
+            if (unsubscribeFirestore) unsubscribeFirestore(); // Stop listening
+            
+            // Reset UI
+            document.getElementById('loginOverlay').style.display = 'flex';
+            // Force small delay to allow display:flex to apply before removing opacity class
+            setTimeout(() => {
+                document.getElementById('loginOverlay').classList.remove('fade-out');
+                document.getElementById('dashboardContent').style.opacity = '0';
+            }, 50);
+            
+            // Clear data from view
+            renderTransactions([]);
+            updateOverview(0, 0);
+            allTransactions = [];
+        }
+
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('familyIdInput').value.trim();
+            // Sanitize input to be safe for Firestore collection names (alphanumeric + underscore)
+            const sanitizedId = input.replace(/[^a-zA-Z0-9_]/g, '');
+            
+            if (sanitizedId.length < 3) {
+                showModal("Invalid ID", "Please enter a Family ID with at least 3 characters (Letters and numbers only).");
+                return;
+            }
+            loginFamily(sanitizedId);
+        });
+
+        // --- FIREBASE INIT ---
+
+        async function initFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Use the provided token if available, otherwise sign in anonymously
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user && currentFamilyId) {
+                        startFirestoreListener();
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase Init Error:", error);
+                showModal("Error", "Could not connect to database.");
+            }
+        }
+
+        function getTransactionCollectionRef() {
+             // CRITICAL: Use 'public/data' pattern with dynamic collection name for shared access
+             const collectionName = `finance_data_${currentFamilyId}`;
+             return collection(db, 'artifacts', appId, 'public', 'data', collectionName);
+        }
+
+        function startFirestoreListener() {
+            if (!db || !auth.currentUser || !currentFamilyId) return;
+            if (unsubscribeFirestore) unsubscribeFirestore(); // Clear previous listener
+
+            document.getElementById('loadingIndicator').classList.remove('hidden');
+
+            const q = query(getTransactionCollectionRef()); 
+            
+            unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+                const transactions = [];
+                let totalIncome = 0;
+                let totalExpense = 0;
+
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    const transaction = {
+                        id: doc.id,
+                        ...data,
+                        amount: parseFloat(data.amount || 0),
+                        date: data.date,
+                        // Convert Firestore Timestamp to Date object or use the date string
+                        timestamp: data.timestamp ? data.timestamp.toDate() : new Date(data.date),
+                    };
+                    transactions.push(transaction);
+
+                    if (transaction.type === 'Income') totalIncome += transaction.amount;
+                    else if (transaction.type === 'Expense') totalExpense += transaction.amount;
+                });
+                
+                // Sort transactions by date/timestamp descending for display
+                transactions.sort((a, b) => b.timestamp - a.timestamp);
+
+                // Update shared state for LLM analysis
+                allTransactions = transactions; 
+
+                updateOverview(totalIncome, totalExpense);
+                renderTransactions(transactions);
+                updateCharts(transactions);
+                
+                document.getElementById('loadingIndicator').classList.add('hidden');
+            }, (error) => {
+                console.error("Firestore Listener Error:", error);
+                document.getElementById('loadingIndicator').classList.add('hidden');
+                showModal("Sync Error", error.message);
+            });
+        }
+
+        // --- UI HELPERS ---
+        
+        const formatter = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+        function showModal(title, message) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalMessage').textContent = message;
+            document.getElementById('messageModal').classList.remove('hidden');
+            document.getElementById('messageModal').style.display = 'flex';
+        }
+        window.closeModal = () => {
+            document.getElementById('messageModal').style.display = 'none';
+        }
+
+        function updateOverview(income, expense) {
+            const net = income - expense;
+            document.getElementById('totalIncome').textContent = formatter.format(income);
+            document.getElementById('totalExpense').textContent = formatter.format(expense);
+            document.getElementById('netBalance').textContent = formatter.format(net);
+            
+            const netEl = document.getElementById('netBalance');
+            const netCont = document.getElementById('netBalanceContainer');
+            netEl.className = `text-2xl font-extrabold ${net >= 0 ? 'text-green-600' : 'text-red-600'}`;
+            netCont.className = `flex justify-between items-center p-3 rounded-lg shadow-inner ${net >= 0 ? 'bg-green-50' : 'bg-red-50'}`;
+        }
+
+        function renderTransactions(transactions) {
+            const list = document.getElementById('transactionList');
+            list.innerHTML = ''; 
+
+            if (transactions.length === 0) {
+                document.getElementById('noTransactions').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('noTransactions').classList.add('hidden');
+
+            transactions.slice(0, 50).forEach(t => { 
+                const row = document.createElement('tr');
+                const isIncome = t.type === 'Income';
+                const displayDate = new Date(t.date).toLocaleDateString('en-US', { year: '2-digit', month: 'short', day: 'numeric' });
+
+                row.innerHTML = `
+                    <td class="text-sm text-gray-900">${displayDate}</td>
+                    <td class="text-sm text-gray-600">${t.category}</td>
+                    <td class="text-sm"><span class="px-2 py-0.5 rounded-full text-xs font-medium ${isIncome ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">${t.type}</span></td>
+                    <td class="text-sm font-semibold ${isIncome ? 'text-green-600' : 'text-red-600'}">${formatter.format(t.amount)}</td>
+                `;
+                list.appendChild(row);
+            });
+        }
+
+        // --- CHARTS ---
+
+        function setupCharts() {
+            const ctxMonthly = document.getElementById('monthlyTrendChart').getContext('2d');
+            const ctxCategory = document.getElementById('categoryChart').getContext('2d');
+
+            monthlyChartInstance = new Chart(ctxMonthly, {
+                type: 'line',
+                data: { labels: [], datasets: [] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+
+            categoryChartInstance = new Chart(ctxCategory, {
+                type: 'doughnut',
+                data: { labels: [], datasets: [{ data: [], backgroundColor: [] }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10 } } } }
+            });
+        }
+
+        function updateCharts(transactions) {
+            if (!monthlyChartInstance || !categoryChartInstance) return;
+
+            // Monthly Data
+            const monthlyData = {};
+            transactions.forEach(t => {
+                const d = new Date(t.date || new Date());
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthlyData[key]) monthlyData[key] = 0;
+                monthlyData[key] += (t.type === 'Income' ? t.amount : -t.amount);
+            });
+            const months = Object.keys(monthlyData).sort();
+            
+            monthlyChartInstance.data.labels = months;
+            monthlyChartInstance.data.datasets = [{
+                label: 'Net Balance',
+                data: months.map(m => monthlyData[m]),
+                borderColor: 'rgb(79, 70, 229)',
+                backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                fill: true,
+                tension: 0.3
+            }];
+            monthlyChartInstance.update();
+
+            // Category Data (Expenses Only)
+            const cats = {};
+            transactions.filter(t => t.type === 'Expense').forEach(t => {
+                cats[t.category] = (cats[t.category] || 0) + t.amount;
+            });
+            const labels = Object.keys(cats);
+            const data = labels.map(k => cats[k]);
+            // Generate distinct, semi-vibrant colors
+            const colors = labels.map((_, i) => `hsl(${(i * 137) % 360}, 70%, 50%)`);
+
+            categoryChartInstance.data.labels = labels.length ? labels : ['No Expenses'];
+            categoryChartInstance.data.datasets[0].data = labels.length ? data : [1];
+            categoryChartInstance.data.datasets[0].backgroundColor = labels.length ? colors : ['#e5e7eb'];
+            categoryChartInstance.update();
+        }
+
+        // --- FORMS ---
+
+        document.getElementById('transactionForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentFamilyId) return;
+            
+            const form = e.target;
+            try {
+                await addDoc(getTransactionCollectionRef(), {
+                    type: form.type.value,
+                    amount: parseFloat(form.amount.value),
+                    category: form.category.value.trim(),
+                    date: form.date.value,
+                    timestamp: serverTimestamp()
+                });
+                form.amount.value = '';
+                form.category.value = '';
+                showModal("Success", "Transaction added!");
+            } catch (err) {
+                showModal("Error", err.message);
+            }
+        });
+
+        // CSV Logic
+        document.getElementById('csvForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentFamilyId) return;
+
+            const file = document.getElementById('csvFile').files[0];
+            if (!file) {
+                 showModal("No File", "Please select a CSV file to import.");
+                 return;
+            }
+
+            const btn = document.getElementById('csvSubmitButton');
+            btn.textContent = 'Importing...';
+            btn.disabled = true;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const lines = event.target.result.trim().split('\n');
+                    if (lines.length < 2) throw new Error("File empty or invalid.");
+                    
+                    const headers = lines[0].toLowerCase().split(',');
+                    const idxDate = headers.findIndex(h => h.includes('date'));
+                    const idxAmt = headers.findIndex(h => h.includes('amount') || h.includes('value'));
+                    const idxDesc = headers.findIndex(h => h.includes('desc') || h.includes('memo') || h.includes('description'));
+
+                    if (idxDate === -1 || idxAmt === -1) throw new Error("Could not find Date or Amount columns. Ensure headers include 'date' and 'amount/value'.");
+
+                    const batch = [];
+                    for (let i = 1; i < lines.length; i++) {
+                        const row = lines[i].split(',');
+                        if (row.length < 2) continue;
+                        
+                        let amtStr = row[idxAmt].replace(/[^0-9.-]+/g,"");
+                        let amt = parseFloat(amtStr);
+                        if (isNaN(amt) || amt === 0) continue;
+
+                        let dateStr = row[idxDate].trim().replace(/"/g, '');
+                        // Basic date parsing (handles common formats like MM/DD/YYYY or YYYY-MM-DD)
+                        let dateObj = new Date(dateStr);
+                        if (isNaN(dateObj.getTime())) {
+                            // Try to infer YYYY-MM-DD format if needed
+                            dateObj = new Date(dateStr.split('/').reverse().join('-')); 
+                        }
+                        if (isNaN(dateObj.getTime())) {
+                            console.warn("Skipping transaction due to invalid date:", dateStr);
+                            continue;
+                        }
+
+                        batch.push({
+                            date: dateObj.toISOString().split('T')[0],
+                            amount: Math.abs(amt),
+                            type: amt >= 0 ? 'Income' : 'Expense',
+                            category: idxDesc > -1 ? row[idxDesc].replace(/"/g, '').trim() : 'Imported',
+                            timestamp: serverTimestamp()
+                        });
+                    }
+                    
+                    if (batch.length === 0) throw new Error("No valid transactions found in the file.");
+
+                    const ref = getTransactionCollectionRef();
+                    for (const item of batch) await addDoc(ref, item);
+                    
+                    showModal("Import Complete", `Imported ${batch.length} transactions.`);
+                    document.getElementById('csvFile').value = '';
+                } catch (err) {
+                    showModal("Import Failed", err.message);
+                } finally {
+                    btn.textContent = 'Import CSV';
+                    btn.disabled = false;
+                }
+            };
+            reader.onerror = () => {
+                showModal("Read Error", "Failed to read the file.");
+                btn.textContent = 'Import CSV';
+                btn.disabled = false;
+            }
+            reader.readAsText(file);
+        });
+
+        // --- LLM API CALL UTILITIES ---
+
+        /**
+         * Executes a fetch request with exponential backoff.
+         */
+        async function fetchWithBackoff(url, options, retries = 5, delay = 1000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) {
+                        // Too Many Requests - Retry
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay *= 2; // Exponential backoff
+                        continue;
+                    }
+                    if (!response.ok) {
+                        const errorBody = await response.json();
+                        throw new Error(errorBody.error?.message || `HTTP error! status: ${response.status}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === retries - 1) throw error; // Re-throw on last retry
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                }
+            }
+        }
+
+        // --- LLM FINANCE COACH FEATURE ---
+
+        function getFinancialSummary(transactions) {
+            // Get data for the last 90 days to provide relevant, recent advice
+            const ninetyDaysAgo = new Date();
+            ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+            const recentTransactions = transactions.filter(t => new Date(t.date) >= ninetyDaysAgo);
+
+            const expenses = recentTransactions.filter(t => t.type === 'Expense');
+            const income = recentTransactions.filter(t => t.type === 'Income');
+
+            const totalIncome = income.reduce((sum, t) => sum + t.amount, 0);
+            const totalExpense = expenses.reduce((sum, t) => sum + t.amount, 0);
+            const netBalance = totalIncome - totalExpense;
+
+            const categoryMap = {};
+            expenses.forEach(t => {
+                const cat = t.category.trim() || 'Uncategorized';
+                categoryMap[cat] = (categoryMap[cat] || 0) + t.amount;
+            });
+
+            // Format for the LLM
+            let summary = `Family Financial Summary (based on transactions in the last 90 days - Total ${recentTransactions.length} entries):\n`;
+            summary += `Total Income (90 days): $${totalIncome.toFixed(2)}\n`;
+            summary += `Total Expenses (90 days): $${totalExpense.toFixed(2)}\n`;
+            summary += `Net Savings (90 days): $${netBalance.toFixed(2)}\n\n`;
+            summary += `Expense Breakdown by Category (90 days):\n`;
+
+            // Sort categories by amount descending
+            const sortedCategories = Object.entries(categoryMap).sort(([, a], [, b]) => b - a);
+
+            sortedCategories.forEach(([cat, amount]) => {
+                summary += `- ${cat}: $${amount.toFixed(2)}\n`;
+            });
+
+            return summary;
+        }
+
+        async function analyzeFinances() {
+            const btn = document.getElementById('analyzeButton');
+            const resultDiv = document.getElementById('analysisResult');
+            const resultText = document.getElementById('analysisText');
+            const sourcesDiv = document.getElementById('citationSources');
+
+            if (allTransactions.length === 0) {
+                showModal("No Data", "Please add some transactions before running the analysis.");
+                return;
+            }
+            
+            // Set loading state
+            btn.textContent = 'Generating Insights...';
+            btn.disabled = true;
+            resultText.innerHTML = '<p class="animate-pulse text-purple-600">Analyzing data and looking up financial best practices...</p>';
+            resultDiv.classList.remove('hidden');
+            sourcesDiv.innerHTML = '';
+            
+            try {
+                const financeSummary = getFinancialSummary(allTransactions);
+                const userQuery = `Analyze the following family financial data for the last 90 days. Provide a concise, friendly, and actionable summary. Focus on identifying the top 2-3 areas for savings or budgeting improvement, and suggest a realistic monthly savings goal based on the Net Savings figure. Present the advice in a clear, easy-to-read, three-paragraph format: 1. Overview and Strengths, 2. Areas for Improvement (with specific category advice), 3. Suggested Goal/Next Steps.
+
+${financeSummary}`;
+
+                const systemPrompt = "You are a world-class, unbiased family financial coach. You always provide positive, encouraging, and actionable advice based on the provided data and real-world financial best practices.";
+                
+                const payload = {
+                    contents: [{ parts: [{ text: userQuery }] }],
+                    tools: [{ "google_search": {} }],
+                    systemInstruction: {
+                        parts: [{ text: systemPrompt }]
+                    },
+                };
+
+                const apiUrl = `${API_URL_BASE}gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
+                
+                const response = await fetchWithBackoff(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    // Replace newlines with <br> for simple multi-paragraph display
+                    resultText.innerHTML = text.replace(/\n/g, '<br>'); 
+
+                    // Extract grounding sources
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+                    
+                    if (sources.length > 0) {
+                        sourcesDiv.innerHTML = 'Source(s): ';
+                        sources.forEach((s, index) => {
+                            const link = document.createElement('a');
+                            link.href = s.uri;
+                            link.target = '_blank';
+                            link.className = 'text-purple-600 hover:text-purple-800 underline ml-1';
+                            link.textContent = s.title;
+                            sourcesDiv.appendChild(link);
+                            if (index < sources.length - 1) {
+                                sourcesDiv.appendChild(document.createTextNode(', '));
+                            }
+                        });
+                    } else {
+                         sourcesDiv.innerHTML = 'Sources not available.';
+                    }
+
+                } else {
+                     resultText.innerHTML = '<p class="text-red-500">Could not generate insights. Please try again. Check the console for API errors.</p>';
+                }
+
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                resultText.innerHTML = `<p class="text-red-500">Error: A general error occurred during analysis. Check the console for details.</p>`;
+            } finally {
+                btn.textContent = 'Analyze Finances & Get Budget Tips';
+                btn.disabled = false;
+            }
+        }
+
+        // Init
+        window.onload = () => {
+            document.getElementById('date').valueAsDate = new Date();
+            setupCharts();
+            checkLoginState(); // Check if user is already "logged in"
+            
+            // Attach event listener for the new LLM button
+            document.getElementById('analyzeButton').addEventListener('click', analyzeFinances);
+        };
+    </script>
+</body>
+</html>
